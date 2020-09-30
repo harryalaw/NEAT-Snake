@@ -22,6 +22,8 @@ class Snake:
         # @Todo assign values
         self.length = 3
         self.occupied_cells = deque()  # will store head at 0 and tail at -1
+
+        # initial setup
         self.occupied_cells.appendleft([5, 12])
         self.occupied_cells.appendleft([6, 12])
         self.occupied_cells.appendleft([7, 12])
@@ -32,14 +34,20 @@ class Snake:
         # to peek just look at occupied_cells[0]!
 
         self.frame = 0
+        self.last_update = -1
+        self.stored_change = None
         self.is_alive = True
 
     def change_dir(self, dir_):
+        if self.frame == self.last_update:
+            self.stored_change = dir_
+            return
+        if dir_ == DISALLOWED[self.dir]:
+            return
+        self.last_update = self.frame
         self.dir = dir_
 
     def move(self):
-        # @todo disallow moving back onto itself.
-        # @todo implement a queue system to the inputs, so that one press corresponds to one movement
         if not self.is_alive:
             return
         # if self.frame % 2 != 0:
@@ -118,9 +126,16 @@ def main():
     run = True
     clock = pygame.time.Clock()
     while run:
-        clock.tick(30)
-        # using a frame counter to be able to modulate the speed of the snake
+        clock.tick(15)
+        # using a frame
+        # counter to be able to modulate the speed of the snake
         snake.frame += 1
+        moved = False
+        if snake.stored_change:
+            snake.change_dir(snake.stored_change)
+            snake.move()
+            snake.stored_change = None
+            moved = True
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -143,11 +158,11 @@ def main():
                 if event.key == 114 and not snake.is_alive:
                     snake = Snake()
                     food = Food(snake)
-        if snake.frame % 2 == 0:
+        if not moved:
             snake.move()
-            snake.eat(food)
-            if snake.check_collision():
-                snake.is_alive = False
+        snake.eat(food)
+        if snake.check_collision():
+            snake.is_alive = False
         draw_window(win, snake, food)
 
 
