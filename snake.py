@@ -89,14 +89,14 @@ class Snake:
         collided = False
 
         curr_head = [self.occupied_cells[0][0], self.occupied_cells[0][1]]
-        curr_head = self.occupied_cells.popleft()
+        # curr_head = self.occupied_cells.popleft()
 
         if curr_head[0] < 0 or curr_head[1] < 0 or curr_head[0] >= GRID_WIDTH//CELLWIDTH or curr_head[1] >= GRID_HEIGHT//CELLWIDTH:
             collided = True
 
-        elif curr_head in self.occupied_cells:
+        elif curr_head in list(self.occupied_cells)[1:]:
             collided = True
-        self.occupied_cells.appendleft(curr_head)
+        # self.occupied_cells.appendleft(curr_head)
         return collided
 
     def draw(self, win):
@@ -142,6 +142,42 @@ def draw_window(win, snake, food, score):
     win.blit(score_text, (10, 10))
 
     pygame.display.update()
+
+
+def board_to_matrix(snake, food):
+    ARRAYWIDTH = GRID_WIDTH // CELLWIDTH
+    ARRAYHEIGHT = GRID_HEIGHT // CELLWIDTH
+    board = [[0 for _ in range(ARRAYWIDTH+2)] for _ in range(ARRAYHEIGHT+2)]
+    for i in range(ARRAYWIDTH+2):
+        board[0][i] = 1
+        board[ARRAYHEIGHT+1][i] = 1
+    for j in range(ARRAYHEIGHT+2):
+        board[j][0] = 1
+        board[j][ARRAYWIDTH+1] = 1
+    for x, cell in enumerate(snake.occupied_cells):
+        if x == 0:
+            board[cell[1]][cell[0]] = 'H'
+        else:
+            board[cell[1]][cell[0]] = 1
+    board[food.y][food.x] = 'F'
+
+    return board
+
+
+def find_next_ray(board, object, start, ray):
+    """Finds the next instance of {object} in direction {ray} 
+    starting from {start} and returns the square of the 
+    euclidean distance or -1 if {object} not found"""
+    x, y = start
+
+    while True:
+        if x < 0 or y < 0 or x >= len(board[0]) or y >= len(board):
+            return -1
+        if board[y][x] == object:
+            return (x-start[0])**2 + (y-start[1])**2
+        else:
+            x += ray[0]
+            y += ray[1]
 
 
 def main():
@@ -202,6 +238,11 @@ def main():
             score += 1
 
         draw_window(win, snake, food, score)
+        gameboard = board_to_matrix(snake, food)
+
+        print()
+        for line in gameboard:
+            print(line)
 
 
 main()
