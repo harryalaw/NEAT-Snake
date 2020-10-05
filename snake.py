@@ -1,16 +1,19 @@
 import pygame
 import random
+import numpy as np
 from collections import deque
 
 pygame.font.init()
 
 WIN_WIDTH = 600
 WIN_HEIGHT = 600
-GRID_WIDTH = 500  # 25 x 25 squares
-GRID_HEIGHT = 500
+GRID_WIDTH = 250  # 25 x 25 squares
+GRID_HEIGHT = 250
 TOP_LEFT_X = (WIN_WIDTH-GRID_WIDTH) // 2
 TOP_LEFT_Y = (WIN_HEIGHT-GRID_HEIGHT) // 2
 CELLWIDTH = 25
+LOWER = 3
+UPPER = GRID_WIDTH//CELLWIDTH - 4
 
 # Key to remember what the
 # DIRECTIONS = {'Left': (-1, 0), 'Right': (1, 0),
@@ -42,11 +45,25 @@ class Snake:
         self.occupied_cells = deque()  # will store head at 0 and tail at -1
 
         # initial setup
-        self.occupied_cells.appendleft([5, 12])
-        self.occupied_cells.appendleft([6, 12])
-        self.occupied_cells.appendleft([7, 12])
+        # self.occupied_cells.appendleft([5, 12])
+        # self.occupied_cells.appendleft([6, 12])
+        # self.occupied_cells.appendleft([7, 12])
 
-        self.xvel, self.yvel = (1, 0)
+        # self.xvel, self.yvel = (1, 0)
+
+        # initial setup
+        self.occupied_cells.appendleft(
+            [random.randint(LOWER, UPPER), random.randint(LOWER, UPPER)])
+
+        dir_ = random.randint(0, 3)
+        moves = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+        self.xvel, self.yvel = moves[dir_]
+        for i in range(2):
+            x, y = self.occupied_cells[0]
+            x += self.xvel
+            y += self.yvel
+            self.occupied_cells.appendleft((x, y))
 
         self.frame = 0
         self.last_update = -1
@@ -143,24 +160,43 @@ def draw_window(win, snake, food, score):
 
     pygame.display.update()
 
+    board = board_to_matrix(snake, food)
+    for line in board:
+        for char in line:
+            print(char, end=' ')
+        print()
+    print()
+    search_board_ray(board, snake.occupied_cells[0], (1, 0))
+    search_board_ray(board, snake.occupied_cells[0], (1, 1))
+    search_board_ray(board, snake.occupied_cells[0], (0, 1))
+    search_board_ray(board, snake.occupied_cells[0], (-1, 1))
+    search_board_ray(board, snake.occupied_cells[0], (-1, 0))
+    search_board_ray(board, snake.occupied_cells[0], (-1, -1))
+    search_board_ray(board, snake.occupied_cells[0], (0, -1))
+    search_board_ray(board, snake.occupied_cells[0], (1, -1))
+
 
 def board_to_matrix(snake, food):
+    """Converts a snake game into a matrix.
+    Outer edges are denoted by 'W'
+    Snake head by 'H' and body by '1'
+    Food by 'F'"""
+
     ARRAYWIDTH = GRID_WIDTH // CELLWIDTH
     ARRAYHEIGHT = GRID_HEIGHT // CELLWIDTH
     board = [[0 for _ in range(ARRAYWIDTH+2)] for _ in range(ARRAYHEIGHT+2)]
     for i in range(ARRAYWIDTH+2):
-        board[0][i] = 1
-        board[ARRAYHEIGHT+1][i] = 1
+        board[0][i] = 'W'
+        board[ARRAYHEIGHT+1][i] = 'W'
     for j in range(ARRAYHEIGHT+2):
-        board[j][0] = 1
-        board[j][ARRAYWIDTH+1] = 1
+        board[j][0] = 'W'
+        board[j][ARRAYWIDTH+1] = 'W'
     for x, cell in enumerate(snake.occupied_cells):
         if x == 0:
-            board[cell[1]][cell[0]] = 'H'
+            board[cell[1]+1][cell[0]+1] = 'H'
         else:
-            board[cell[1]][cell[0]] = 1
-    board[food.y][food.x] = 'F'
-
+            board[cell[1]+1][cell[0]+1] = 1
+    board[food.y+1][food.x+1] = 'F'
     return board
 
 
@@ -178,6 +214,37 @@ def find_next_ray(board, object, start, ray):
         else:
             x += ray[0]
             y += ray[1]
+
+
+def search_board_ray(board, start, ray):
+    """Searches through the board in a direction {ray} and notes the distance to a body cell, if food lies on the ray and the distance to the wall"""
+
+    x, y = start[0] + 1, start[1]+1
+    food_found = False
+    # body_found = False
+    body_distance = np.inf
+    distance = 0
+    while True:
+        if x < 0 or y < 0 or x >= len(board[0]) or y >= len(board):
+            break
+        elif board[y][x] == 'F':
+            food_found = True
+        elif board[y][x] == 1:
+            if distance < body_distance:
+                body_distance = distance
+                # body_found = True
+        elif board[y][x] == 'W':
+            break
+        distance += 1
+        x += ray[0]
+        y += ray[1]
+
+    # @TODO FIGURE OUT WHY THIS IS DIVIDING BY 0 I think the issue is in the initialisation of the board
+    body_distance = 1.0/body_distance
+    distance = 1.0/distance
+    print(
+        f"Direction: {ray}, Distance: {distance}, body: {body_distance}, food: {food_found}")
+    return (body_distance, food_found, distance)
 
 
 def main():
@@ -210,12 +277,28 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_DOWN:
                     temp_dir = (0, 1)
+                    snake.change_dir(temp_dir)
+                    snake.move()
+                    snake.eat(food)
+                    draw_window(win, snake, food, score)
                 elif event.key == pygame.K_LEFT:
                     temp_dir = (-1, 0)
+                    snake.change_dir(temp_dir)
+                    snake.move()
+                    snake.eat(food)
+                    draw_window(win, snake, food, score)
                 elif event.key == pygame.K_UP:
                     temp_dir = (0, -1)
+                    snake.change_dir(temp_dir)
+                    snake.move()
+                    snake.eat(food)
+                    draw_window(win, snake, food, score)
                 elif event.key == pygame.K_RIGHT:
                     temp_dir = (1, 0)
+                    snake.change_dir(temp_dir)
+                    snake.move()
+                    snake.eat(food)
+                    draw_window(win, snake, food, score)
 
                 # reset by pressing r
                 if event.key == 114 and not snake.is_alive:
@@ -223,13 +306,13 @@ def main():
                     food = Food(snake)
                     score = 0
 
-        if temp_dir:
-            snake.change_dir(temp_dir)
+        # if temp_dir:
+        #     snake.change_dir(temp_dir)
 
-        if not moved:
-            snake.move()
+        # if not moved:
+        #     snake.move()
 
-        snake.eat(food)
+        # snake.eat(food)
 
         if snake.check_collision():
             snake.is_alive = False
@@ -237,12 +320,8 @@ def main():
         if snake.length > start_length:
             score += 1
 
-        draw_window(win, snake, food, score)
-        gameboard = board_to_matrix(snake, food)
-
-        print()
-        for line in gameboard:
-            print(line)
+        # draw_window(win, snake, food, score)
+        board = board_to_matrix(snake, food)
 
 
 main()
