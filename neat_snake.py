@@ -2,6 +2,7 @@ import pygame
 import random
 import neat
 import os
+import numpy as np
 from collections import deque
 
 pygame.font.init()
@@ -14,8 +15,8 @@ TOP_LEFT_X = (WIN_WIDTH-GRID_WIDTH) // 2
 TOP_LEFT_Y = (WIN_HEIGHT-GRID_HEIGHT) // 2
 CELLWIDTH = 25
 
-LOWER = 3
-UPPER = GRID_WIDTH//CELLWIDTH - 4
+LOWER = 4
+UPPER = 6
 GEN = 0
 # Key to remember what the
 # DIRECTIONS = {'Left': (-1, 0), 'Right': (1, 0),
@@ -53,18 +54,19 @@ class Snake:
         dir_ = random.randint(0, 3)
         moves = ((-1, 0), (1, 0), (0, -1), (0, 1))
 
-        self.xvel, self.yvel = moves[dir_]
-        for i in range(2):
-            next_cell = self.occupied_cells[0]
-            next_cell[0] += self.xvel
-            next_cell[1] += self.yvel
-            self.occupied_cells.appendleft(next_cell)
-
-        self.steps = 0
+        # initialised to these values so that after it moves two steps
+        # when I create it's start point it will start with 0 steps
+        # and 100 hunger
+        self.steps = -2
+        self.hunger = 102
         self.is_alive = True
         self.fed = False
-        self.hunger = 100
-        # self.best_food_dist = 10000
+
+        self.food = Food(self)
+
+        self.xvel, self.yvel = moves[dir_]
+        for i in range(2):
+            self.move()
 
     def turn_cw(self):
         temp = self.xvel
@@ -77,11 +79,13 @@ class Snake:
         self.yvel = temp
 
     def change_dir(self, dir_):
-        value = VALID_MOVES[(self.xvel, self.yvel)][dir_]
-        if value == 1:
-            self.turn_cw()
-        elif value == 2:
-            self.turn_ccw()
+        # value = VALID_MOVES[(self.xvel, self.yvel)][dir_]
+        # if value == 1:
+        #     self.turn_cw()
+        # elif value == 2:
+        #     self.turn_ccw()
+        self.xvel = dir_[0]
+        self.yvel = dir_[1]
 
     def move(self):
         if self.hunger <= 0:
@@ -112,22 +116,24 @@ class Snake:
             collided = True
         return collided
 
-    def eat(self, food):
-        if self.occupied_cells[0][0] == food.x and self.occupied_cells[0][1] == food.y:
+    def eat(self):
+        if self.occupied_cells[0][0] == self.food.x and self.occupied_cells[0][1] == self.food.y:
             self.length += 1
             self.hunger += 100
             self.fed = True
-            while [food.x, food.y] in self.occupied_cells:
-                food.x = random.randint(
+            while [self.food.x, self.food.y] in self.occupied_cells:
+                self.food.x = random.randint(
                     0, GRID_WIDTH//CELLWIDTH - 1)
-                food.y = random.randint(
+                self.food.y = random.randint(
                     0, GRID_HEIGHT//CELLWIDTH - 1)
 
     def eval_fitness(self):
-        food = self.length - 3
+        food_eaten = self.length - 3
         steps = self.steps
         A, B, C, D, E, F = 2, 2.1, 500, 1.2, 0.25, 1.3
-        return steps + ((A**food) + (food**B) * C) - ((food**D) * ((E*steps)**F))
+        # changed this formula to punish steps harder
+        # formula is taken from https://github.com/Chrispresso/SnakeAI
+        return steps + ((A**food_eaten) + (food_eaten**B) * C) - (((food_eaten+1)**D) * ((E*steps)**F))
 
     def draw(self, win):
         for cell in self.occupied_cells:
@@ -152,15 +158,13 @@ class Food:
                                              TOP_LEFT_Y+int((self.y+0.5)*CELLWIDTH)), CELLWIDTH//2-1)
 
 
-def draw_window(win, snakes, foods, score, gen):
+def draw_window(win, snakes, score, gen):
     win.fill((0, 0, 0))
     outline = (TOP_LEFT_X, TOP_LEFT_Y, GRID_WIDTH, GRID_WIDTH)
     pygame.draw.rect(win, (255, 255, 255), outline, width=1)
-    # food.draw(win)
-    # snake.draw(win)
 
-    for snake, food in zip(snakes, foods):
-        food.draw(win)
+    for snake in snakes:
+        snake.food.draw(win)
         snake.draw(win)
 
     score_text = FONT.render(f"Score: {score}", 1, (255, 255, 255))
@@ -172,7 +176,7 @@ def draw_window(win, snakes, foods, score, gen):
     pygame.display.update()
 
 
-def board_to_matrix(snake, food):
+def board_to_matrix(snake):
     ARRAYWIDTH = GRID_WIDTH // CELLWIDTH
     ARRAYHEIGHT = GRID_HEIGHT // CELLWIDTH
     board = [[0 for _ in range(ARRAYWIDTH+2)] for _ in range(ARRAYHEIGHT+2)]
@@ -184,87 +188,83 @@ def board_to_matrix(snake, food):
         board[j][ARRAYWIDTH+1] = 'W'
     for x, cell in enumerate(snake.occupied_cells):
         if x == 0:
-            try:
-                board[cell[1]][cell[0]] = 'H'
-            except IndexError:
-                print(f"x,y is {cell[0]}, {cell[1]}")
-                for line in board:
-                    print(line)
-                print(f"\n {snake.occupied_cells}, alive? {snake.is_alive}")
+            board[cell[1]+1][cell[0]+1] = 'H'
         else:
-            board[cell[1]][cell[0]] = 1
-    board[food.y][food.x] = 'F'
+            board[cell[1]+1][cell[0]+1] = 1
+    board[snake.food.y+1][snake.food.x+1] = 'F'
 
     return board
 
 
-def find_next_ray(board, object, start, ray):
-    """Finds the next instance of {object} in direction {ray}
-    starting from {start} and returns the square of the
-    euclidean distance or -1 if {object} not found"""
-    x, y = start
+def search_board_ray(board, start, ray):
+    """Searches through the board in a direction {ray} and notes the distance to a body cell, if food lies on the ray and the distance to the wall"""
 
+    x, y = start[0] + 1, start[1]+1
+    food_found = False
+    body_distance = np.inf
+    distance = 0
     while True:
         if x < 0 or y < 0 or x >= len(board[0]) or y >= len(board):
-            return len(board)*len(board)
-        if board[y][x] == object:
-            return (x-start[0])**2 + (y-start[1])**2
-        else:
-            x += ray[0]
-            y += ray[1]
+            break
+        elif board[y][x] == 'F':
+            food_found = True
+        elif board[y][x] == 1:
+            if distance < body_distance:
+                body_distance = distance
+        elif board[y][x] == 'W':
+            break
+        distance += 1
+        x += ray[0]
+        y += ray[1]
+
+    try:
+        body_distance = 1.0/body_distance
+    except ZeroDivisionError:
+        print(x, y, body_distance)
+        for line in board:
+            for char in line:
+                print(char, end=' ')
+            print()
+    distance = 1.0/distance
+    return (body_distance, food_found, distance)
 
 
-def get_inputs(snake, food):
-    """Gets inputs in 8 directions (n,ne,e,se,s,sw,w,nw) and checks for distance to:
-        Food,Walls, and other body parts
+def get_inputs(snake):
+    """Gets inputs in 8 directions(n, ne, e, se, s, sw, w, nw) and checks for distance to:
+        Food, Walls, and other body parts
         Also gets input of what direction the snake currently has
         and the direction of its tail"""
-    board = board_to_matrix(snake, food)
+    board = board_to_matrix(snake)
     head = snake.occupied_cells[0]
     next_tail = snake.occupied_cells[-2]
     tail = snake.occupied_cells[-1]
 
     tail_vel = (next_tail[0]-tail[0], next_tail[1]-tail[1])
 
-    n_wall_dist = find_next_ray(board, 'W', head, (0, -1))
-    ne_wall_dist = find_next_ray(board, 'W', head, (1, -1))
-    e_wall_dist = find_next_ray(board, 'W', head, (1, 0))
-    se_wall_dist = find_next_ray(board, 'W', head, (1, 1))
-    s_wall_dist = find_next_ray(board, 'W', head, (0, 1))
-    sw_wall_dist = find_next_ray(board, 'W', head, (-1, 1))
-    w_wall_dist = find_next_ray(board, 'W', head, (-1, 0))
-    nw_wall_dist = find_next_ray(board, 'W', head, (-1, -1))
-
-    n_self_dist = find_next_ray(board, 1, head, (0, -1))
-    ne_self_dist = find_next_ray(board, 1, head, (1, -1))
-    e_self_dist = find_next_ray(board, 1, head, (1, 0))
-    se_self_dist = find_next_ray(board, 1, head, (1, 1))
-    s_self_dist = find_next_ray(board, 1, head, (0, 1))
-    sw_self_dist = find_next_ray(board, 1, head, (-1, 1))
-    w_self_dist = find_next_ray(board, 1, head, (-1, 0))
-    nw_self_dist = find_next_ray(board, 1, head, (-1, -1))
-
-    n_food_dist = find_next_ray(board, 'F', head, (0, -1))
-    ne_food_dist = find_next_ray(board, 'F', head, (1, -1))
-    e_food_dist = find_next_ray(board, 'F', head, (1, 0))
-    se_food_dist = find_next_ray(board, 'F', head, (1, 1))
-    s_food_dist = find_next_ray(board, 'F', head, (0, 1))
-    sw_food_dist = find_next_ray(board, 'F', head, (-1, 1))
-    w_food_dist = find_next_ray(board, 'F', head, (-1, 0))
-    nw_food_dist = find_next_ray(board, 'F', head, (-1, 1))
+    n_self_dist, n_food_found, n_wall_dist = search_board_ray(
+        board, head, (0, -1))
+    ne_self_dist, ne_food_found, ne_wall_dist = search_board_ray(
+        board, head, (1, -1))
+    e_self_dist, e_food_found, e_wall_dist = search_board_ray(
+        board, head, (1, 0))
+    se_self_dist, se_food_found, se_wall_dist = search_board_ray(
+        board, head, (1, 1))
+    s_self_dist, s_food_found, s_wall_dist = search_board_ray(
+        board, head, (0, 1))
+    sw_self_dist, sw_food_found, sw_wall_dist = search_board_ray(
+        board, head, (-1, 1))
+    w_self_dist, w_food_found, w_wall_dist = search_board_ray(
+        board, head, (-1, 0))
+    nw_self_dist, nw_food_found, nw_wall_dist = search_board_ray(
+        board, head, (-1, 1))
 
     inputs = [
         n_wall_dist, ne_wall_dist, e_wall_dist, se_wall_dist, s_wall_dist, sw_wall_dist, w_wall_dist, nw_wall_dist,
         n_self_dist, ne_self_dist, e_self_dist, se_self_dist, s_self_dist, sw_self_dist, w_self_dist, nw_self_dist,
-        n_food_dist, ne_food_dist, e_food_dist, se_food_dist, s_food_dist, sw_food_dist, w_food_dist, nw_food_dist,
+        n_food_found, ne_food_found, e_food_found, se_food_found, s_food_found, sw_food_found, w_food_found, nw_food_found,
         snake.xvel, snake.yvel, tail_vel[0], tail_vel[1]
     ]
     return inputs
-
-
-def food_distance(cell, food):
-    """Returns the square of euclidean distance from cell to food"""
-    return (cell[0] - food.x)**2 + (cell[1] - food.y)**2
 
 
 def main(genomes, config):
@@ -279,7 +279,6 @@ def main(genomes, config):
         net = neat.nn.FeedForwardNetwork.create(g, config)
         nets.append(net)
         snakes.append(Snake())
-        foods.append(Food(snakes[-1]))
         g.fitness = 0
         ge.append(g)
 
@@ -303,7 +302,7 @@ def main(genomes, config):
 
         to_rem = []
         for x, snake in enumerate(snakes):
-            inputs = get_inputs(snake, foods[x])
+            inputs = get_inputs(snake)
             outputs = nets[x].activate(inputs)
 
             max_out = 0.8
@@ -328,7 +327,7 @@ def main(genomes, config):
 
             snake.move()
 
-            snake.eat(foods[x])
+            snake.eat()
             if snake.fed:
                 snake.fed = False
 
@@ -344,9 +343,8 @@ def main(genomes, config):
         nets = [nets[x] for x in range(len(nets)) if x not in to_rem]
         ge = [ge[x] for x in range(len(ge)) if x not in to_rem]
         snakes = [snakes[x] for x in range(len(snakes)) if x not in to_rem]
-        foods = [foods[x] for x in range(len(foods)) if x not in to_rem]
 
-        draw_window(win, snakes, foods, max_score, GEN)
+        draw_window(win, snakes, max_score, GEN)
 
 # main()
 
@@ -361,7 +359,7 @@ def run(config_path):
     stats = neat.StatisticsReporter()
     p.add_reporter(stats)
 
-    winner = p.run(main, 500)
+    winner = p.run(main)
 
 
 if __name__ == "__main__":
